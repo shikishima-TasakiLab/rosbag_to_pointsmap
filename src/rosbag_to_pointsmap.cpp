@@ -10,6 +10,7 @@
 #include <ros/ros.h>
 #include <rosbag/bag.h>
 #include <rosbag/view.h>
+#include <geometry_msgs/TransformStamped.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <tf2_msgs/TFMessage.h>
 
@@ -99,7 +100,12 @@ int Rosbag2Pointsmap::Main()
                                   << tf->transforms.data()[i].child_frame_id << std::endl;
                     }
                     std::cout << std::endl;
+
                     this->tf_queue_.push(*tf);
+
+                    if (this->tf_queue_.size() > TF_STOCK) {
+                        this->tf_queue_.pop();
+                    }
                 }
             }
         }
