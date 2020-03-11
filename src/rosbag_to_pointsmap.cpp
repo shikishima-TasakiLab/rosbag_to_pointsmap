@@ -69,9 +69,12 @@ Rosbag2Pointsmap::Rosbag2Pointsmap(u_int mode, std::vector<std::string> rosbag_p
 //  クラスのメイン関数
 int Rosbag2Pointsmap::Main()
 {
+    //  使用するトピックの一覧を表示．
     for (size_t i = 0; i < this->topics_.size(); i++) {
         std::cout << this->topics_[i] << std::endl;
     }
+
+    //  使用するROSBAGをすべて読み込む．
     for (size_t rosbag_index = 0; rosbag_index < this->rosbag_paths_.size(); rosbag_index++) {
         rosbag::Bag bag;
         bag.open(this->rosbag_paths_[rosbag_index], rosbag::bagmode::Read);
@@ -108,6 +111,7 @@ int Rosbag2Pointsmap::Main()
         }
     }
 
+    //  地図の保存（仮）
     this->points_map_.header.frame_id = "/map";
     pcl::io::savePCDFileBinary("/dataset/Autoware/pointsmap.pcd", this->points_map_);
 
