@@ -1,6 +1,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <string>
+#include <stdarg.h>
 #include <iostream>
 
 #define NO_FILE_DIR_EXIST 0
@@ -62,4 +63,55 @@ std::string get_extension(std::string file_path)
 {
     int ext_i = file_path.find_last_of(".");
     return file_path.substr(ext_i, file_path.size() - ext_i);
+}
+
+/* ファイルの存在するディレクトリのパスを取得する
+std::string file_path : ディレクトリを取得するファイルのパス
+return : std::string ディレクトリのパス
+*/
+std::string get_directory(std::string file_path)
+{
+    int dir_i = file_path.find_last_of("/");
+    return file_path.substr(0UL, dir_i + 1);
+}
+
+/* ファイル名を取得する
+std::string file_path : ファイル名を取得するファイルのパス
+return : std::string ファイル名
+*/
+std::string get_filename(std::string file_path)
+{
+    int dir_i = file_path.find_last_of("/");
+    int ext_i = file_path.find_last_of(".");
+
+    if (dir_i < ext_i) {
+        return file_path.substr(dir_i + 1, ext_i - dir_i - 1);
+    }
+    else {
+        return file_path.substr(dir_i + 1, file_path.size() - dir_i - 1);
+    }
+}
+
+/* パスを連結する．
+path : 連結するパス．複数指定可能．
+return : std::string 連結したパス．
+*/
+template<class... Args>
+std::string path_join(const Args... path)
+{
+    std::string dst_path = "";
+    for (std::string src_path : std::initializer_list<std::string>{path...}) {
+        int dst_dir_i = dst_path.find_last_of("/");
+        if (dst_dir_i == dst_path.length() - 1) {
+            dst_path = dst_path.substr(0UL, dst_dir_i);
+        }
+
+        int src_dir_i = src_path.find_first_of("/");
+        if (src_dir_i != 0) {
+            src_path = "/" + src_path;
+        }
+
+        dst_path += src_path;
+    }
+    return dst_path;
 }
