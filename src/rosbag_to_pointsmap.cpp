@@ -268,7 +268,7 @@ int main(int argc, char **argv)
     cmdparser.add<std::string>("camerainfo_topic", 'c', "CameraInfoのトピック名を指定します．", false, "/camera_info");
     cmdparser.add<float_t>("minimum_scan_range", 's', "使用するLiDARやカメラからの距離(m)の最小値を指定する．", false, 2.0f);
     cmdparser.add<float_t>("leaf_size", 'l', "点群の密度を小さくするVoxel Grid Filterのリーフサイズ(m)を設定します．", false, 0.2f);
-    cmdparser.add("ros", 'r', "ROSノードとして起動します．");
+    cmdparser.add("ros", 'r', "ROSのトピックを配信します．");
     cmdparser.add("help", 'h', "使い方を表示します.");
     
     //  parse に失敗した場合，helpオプションが指定された場合に使い方を表示する．
@@ -332,9 +332,7 @@ int main(int argc, char **argv)
     }
 
     bool ros_on = cmdparser.exist("ros");
-    if (ros_on == true) {
-        ros::init(argc, argv, "rosbag_to_pointsmap");
-    }
+    ros::init(argc, argv, "rosbag_to_pointsmap");
 
     //  クラス
     Rosbag2Pointsmap r2p(mode, cmdparser.rest(), cmdparser.get<double_t>("frequency"), output, ros_on);
