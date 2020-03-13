@@ -326,9 +326,9 @@ int Rosbag2Pointsmap::Depth2Pointsmap()
     //  時間の差が最小なTFを一つ選択する．
     std::deque<geometry_msgs::TransformStamped>::iterator tf_data = tf_data_queue_itrs[std::distance(d_times.begin(), std::min_element(d_times.begin(), d_times.end()))];
 
-    std::cout << tf_data->header.stamp << " : " << tf_data->header.frame_id << " : " << tf_data->child_frame_id << std::endl;
+    std::cout << tf_data->header.stamp << " : " << tf_data->header.frame_id << " : " << tf_data->child_frame_id << " : " << this->image_queue_->front().encoding << std::endl;
 
-    cv_bridge::CvImagePtr depth_map = cv_bridge::toCvCopy(this->image_queue_->front(), this->image_queue_->front().encoding);
+    cv::Mat depth_map = cv_bridge::toCvCopy(this->image_queue_->front(), this->image_queue_->front().encoding)->image;
 
     this->image_queue_->pop_front();
 
