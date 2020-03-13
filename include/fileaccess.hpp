@@ -61,8 +61,18 @@ return : std::string 拡張子
 */
 std::string get_extension(std::string file_path)
 {
-    int ext_i = file_path.find_last_of(".");
-    return file_path.substr(ext_i, file_path.size() - ext_i);
+    size_t dir_i = file_path.find_last_of("/");
+    size_t ext_i = file_path.find_last_of(".");
+
+    if (dir_i == std::string::npos) {
+        return file_path.substr(ext_i, file_path.size() - ext_i);
+    }
+    else if (dir_i < ext_i) {
+        return file_path.substr(ext_i, file_path.size() - ext_i);
+    }
+    else {
+        return "";
+    }
 }
 
 /* ファイルの存在するディレクトリのパスを取得する
@@ -71,8 +81,8 @@ return : std::string ディレクトリのパス
 */
 std::string get_directory(std::string file_path)
 {
-    int dir_i = file_path.find_last_of("/");
-    return file_path.substr(0UL, dir_i + 1);
+    size_t dir_i = file_path.find_last_of("/");
+    return file_path.substr(0UL, dir_i + 1UL);
 }
 
 /* ファイル名を取得する
@@ -81,14 +91,14 @@ return : std::string ファイル名
 */
 std::string get_filename(std::string file_path)
 {
-    int dir_i = file_path.find_last_of("/");
-    int ext_i = file_path.find_last_of(".");
+    size_t dir_i = file_path.find_last_of("/");
+    size_t ext_i = file_path.find_last_of(".");
 
     if (dir_i < ext_i) {
-        return file_path.substr(dir_i + 1, ext_i - dir_i - 1);
+        return file_path.substr(dir_i + 1UL, ext_i - dir_i - 1UL);
     }
     else {
-        return file_path.substr(dir_i + 1, file_path.size() - dir_i - 1);
+        return file_path.substr(dir_i + 1UL, file_path.size() - dir_i - 1UL);
     }
 }
 
@@ -101,13 +111,13 @@ std::string path_join(const Args... path)
 {
     std::string dst_path = "";
     for (std::string src_path : std::initializer_list<std::string>{path...}) {
-        int dst_dir_i = dst_path.find_last_of("/");
-        if (dst_dir_i == dst_path.length() - 1) {
+        size_t dst_dir_i = dst_path.find_last_of("/");
+        if (dst_dir_i == dst_path.length() - 1UL) {
             dst_path = dst_path.substr(0UL, dst_dir_i);
         }
 
-        int src_dir_i = src_path.find_first_of("/");
-        if (src_dir_i != 0) {
+        size_t src_dir_i = src_path.find_first_of("/");
+        if (src_dir_i != 0UL) {
             src_path = "/" + src_path;
         }
 
