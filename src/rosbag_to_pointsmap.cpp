@@ -328,7 +328,9 @@ int Rosbag2Pointsmap::Depth2Pointsmap()
 
     std::cout << tf_data->header.stamp << " : " << tf_data->header.frame_id << " : " << tf_data->child_frame_id << std::endl;
 
-    //cv::Mat depth_map = cv_bridge::toCvCopy(this->image_queue_->front(), this->image_queue_->front().encoding);
+    cv_bridge::CvImagePtr depth_map = cv_bridge::toCvCopy(this->image_queue_->front(), this->image_queue_->front().encoding);
+
+    this->image_queue_->pop_front();
 
     return EXIT_SUCCESS;
 }
