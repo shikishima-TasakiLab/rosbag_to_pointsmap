@@ -26,7 +26,7 @@
 #define POINTS_STOCK 5
 #define TF_STOCK 20
 
-#define SAVE_POINTSMAP 1000000
+#define SAVE_POINTSMAP 10000000UL
 
 //  クラスの定義
 class Rosbag2Pointsmap
@@ -37,7 +37,7 @@ class Rosbag2Pointsmap
         float_t minimum_scan_range_;
         float_t leaf_size_;
 
-        Rosbag2Pointsmap(u_int mode, std::vector<std::string> rosbag_path, double_t frequency, std::string output_path, bool ros_on);
+        Rosbag2Pointsmap(u_int mode, std::vector<std::string> rosbag_path, double_t frequency, std::string output_path, bool ros_publish);
         int Main();
 
     //  クラスの中でのみ参照できるメンバ変数・関数．
@@ -45,7 +45,7 @@ class Rosbag2Pointsmap
         u_int mode_;
         double_t frequency_;
         std::vector<std::string> rosbag_paths_;
-        bool ros_on_;
+        bool ros_publish_;
 
         ros::NodeHandle nh_;
         ros::Publisher lider_points_;
@@ -64,7 +64,7 @@ class Rosbag2Pointsmap
 };
 
 //  クラスの初期化
-Rosbag2Pointsmap::Rosbag2Pointsmap(u_int mode, std::vector<std::string> rosbag_path, double_t frequency, std::string output_path, bool ros_on)
+Rosbag2Pointsmap::Rosbag2Pointsmap(u_int mode, std::vector<std::string> rosbag_path, double_t frequency, std::string output_path, bool ros_publish)
     :   points_map_(new pcl::PointCloud<pcl::PointXYZ>)
     ,   output_count_(0)
     ,   minimum_scan_range_(2.0f)
@@ -74,7 +74,7 @@ Rosbag2Pointsmap::Rosbag2Pointsmap(u_int mode, std::vector<std::string> rosbag_p
     this->mode_ = mode;
     this->frequency_ = frequency;
     this->output_path_ = output_path;
-    this->ros_on_ = ros_on;
+    this->ros_publish_ = ros_publish;
 
     //  rosbag_path引数からROSBAGファイルのパスのみ格納する．
     for (size_t i = 0; i < rosbag_path.size(); i++) {
@@ -155,6 +155,7 @@ int Rosbag2Pointsmap::Main()
                 }
             }
 
+            //  キューの中にあるメッセージをすべて読み込み，保存する．
             while (this->points_queue_.size() > 0) this->LiDAR2Pointsmap();
             this->SavePointsmap();
         }
@@ -331,11 +332,11 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    bool ros_on = cmdparser.exist("ros");
+    bool ros_publish = cmdparser.exist("ros");
     ros::init(argc, argv, "rosbag_to_pointsmap");
 
     //  クラス
-    Rosbag2Pointsmap r2p(mode, cmdparser.rest(), cmdparser.get<double_t>("frequency"), output, ros_on);
+    Rosbag2Pointsmap r2p(mode, cmdparser.rest(), cmdparser.get<double_t>("frequency"), output, ros_publish);
 
     //  使用するトピックを設定する．    
     if (mode == MODE_POINTS) {
