@@ -47,9 +47,10 @@ class Rosbag2Pointsmap
         std::vector<std::string> rosbag_paths_;
         bool ros_publish_;
 
-        ros::NodeHandle nh_;
-        ros::Publisher lider_points_;
-        tf::TransformBroadcaster tf_br_;
+        ros::NodeHandle *nh_;
+        ros::Publisher *points_pub_;
+        ros::Publisher *points_map_pub_;
+        tf::TransformBroadcaster *tf_br_;
 
         std::deque<sensor_msgs::PointCloud2> points_queue_;
         std::deque<geometry_msgs::TransformStamped> tf_data_queue_;
@@ -86,9 +87,6 @@ Rosbag2Pointsmap::Rosbag2Pointsmap(u_int mode, std::vector<std::string> rosbag_p
             ROS_WARN("\"%s\" is not found.", rosbag_path[i].c_str());
             continue;
         }
-        std::cout << get_directory(rosbag_path[i]) << std::endl;
-        std::cout << get_filename(rosbag_path[i]) << std::endl;
-        std::cout << path_join(get_directory(rosbag_path[i]), "/rosbag/", get_filename(rosbag_path[i]) + get_extension(rosbag_path[i])) << std::endl;
         if (get_extension(rosbag_path[i]) == ".bag") {
             this->rosbag_paths_.push_back(rosbag_path[i]);
             ROS_INFO("Load: \"%s\"", rosbag_path[i].c_str());
@@ -101,15 +99,32 @@ Rosbag2Pointsmap::Rosbag2Pointsmap(u_int mode, std::vector<std::string> rosbag_p
     //  使用するトピックを追加．
     this->topics_.push_back("/tf");
     this->topics_.push_back("/tf_static");
+
+    if (this->ros_publish_ == true) {
+        this->nh_ = new ros::NodeHandle;
+        this->points_map_pub_ = new ros::Publisher;
+        this->points_pub_ = new ros::Publisher;
+        this->tf_br_ = new tf::TransformBroadcaster;
+
+        *this->points_map_pub_ = this->nh_->advertise<sensor_msgs::PointCloud2>("points_map", 1);
+        if (this->mode_ == MODE_POINTS) {
+            *this->points_pub_ = this->nh_->advertise<sensor_msgs::PointCloud2>("lidar_points", 1);
+        }
+        else if (this->mode_ == MODE_DEPTH) {
+            *this->points_pub_ = this->nh_->advertise<sensor_msgs::PointCloud2>("depth_points", 1);
+        }
+    }
 }
 
 //  クラスのメイン関数
 int Rosbag2Pointsmap::Main()
 {
     //  使用するトピックの一覧を表示．
+    /*
     for (size_t i = 0; i < this->topics_.size(); i++) {
         std::cout << this->topics_[i] << std::endl;
     }
+    */
 
     //  使用するROSBAGをすべて読み込む．
     for (size_t rosbag_index = 0; rosbag_index < this->rosbag_paths_.size(); rosbag_index++) {
@@ -183,6 +198,16 @@ int Rosbag2Pointsmap::LiDAR2Pointsmap()
     //  時間の差が最小なTFを一つ選択する．
     std::deque<geometry_msgs::TransformStamped>::iterator tf_data = tf_data_queue_itrs[std::distance(d_times.begin(), std::min_element(d_times.begin(), d_times.end()))];
 
+    //  ROSのトピックを配信
+    if (this->ros_publish_ == true) {
+        geometry_msgs::TransformStamped tf_msg = *tf_data;
+        ros::Time ros_now = ros::Time::now();
+        tf_msg.header.stamp = ros_now;
+        this->tf_br_->sendTransform(tf_msg);
+        points_queue_.front().header.stamp = ros_now;
+        this->points_pub_->publish(this->points_queue_.front());
+    }
+
     //  TFとLiDAR点群を扱いやすい型に変換する．
     tf::StampedTransform tf_w2l;
     tf::transformStampedMsgToTF(*tf_data, tf_w2l);
@@ -210,21 +235,32 @@ int Rosbag2Pointsmap::LiDAR2Pointsmap()
         this->SavePointsmap();
     }
 
+    if (this->ros_publish_ == true) {
+        ros::Rate rate(this->frequency_);
+        ros::spinOnce();
+        rate.sleep();
+    }
+
     return EXIT_SUCCESS;
 }
 
 //  三次元地図の保存．
 int Rosbag2Pointsmap::SavePointsmap()
 {
+    //  this->points_map_ に点が一つもなければ，関数を終了．
     if (this->points_map_->points.size() == 0) return EXIT_FAILURE;
 
+    //  保存した回数をカウントアップ．
     this->output_count_ ++;
 
+    //  引数の出力ファイルのパスを分解．
     std::string dir_path = get_directory(this->output_path_);
     std::string file_name = get_filename(this->output_path_);
     std::string file_ext = get_extension(this->output_path_);
-    std::string save_path;
+    if (file_ext == "") file_ext = ".pcd";
 
+    //  保存するファイルのパスの定義．
+    std::string save_path;
     if (this->output_count_ > 1) {
         std::stringstream num_str;
         num_str << this->output_count_;
@@ -234,8 +270,10 @@ int Rosbag2Pointsmap::SavePointsmap()
         save_path = this->output_path_;
     }
 
+    //  保存する点群の定義．
     pcl::PointCloud<pcl::PointXYZ> save_pointsmap;
 
+    //  Voxel Grid Filter で点の数を減らす．
     if (this->leaf_size_ > 0.0f) {
         pcl::VoxelGrid<pcl::PointXYZ> vgf;
         vgf.setInputCloud(this->points_map_);
@@ -246,11 +284,28 @@ int Rosbag2Pointsmap::SavePointsmap()
         save_pointsmap = *this->points_map_;
     }
 
+    //  三次元地図の保存．
     save_pointsmap.header.frame_id = "/map";
-    pcl::io::savePCDFileBinary(save_path, save_pointsmap);
-    std::cout << "\"" << save_path << "\" に生成した三次元地図を保存しました．" << std::endl;
-
+    try
+    {
+        pcl::io::savePCDFileBinary(save_path, save_pointsmap);
+        std::cout << "\"" << save_path << "\" に生成した三次元地図を保存しました．" << std::endl;
+    }
+    catch(const pcl::IOException& e)
+    {
+        std::cerr << "\"" << save_path << "\" の保存に失敗しました．" << std::endl;
+        std::cerr << e.what() << '\n';
+        return EXIT_FAILURE;
+    }
+    
     this->points_map_->points.clear();
+
+    if (this->ros_publish_ == true) {
+        sensor_msgs::PointCloud2 display_map;
+        pcl::toROSMsg<pcl::PointXYZ>(save_pointsmap, display_map);
+        display_map.header.stamp = ros::Time::now();
+        this->points_map_pub_->publish(display_map);
+    }
 
     return EXIT_SUCCESS;
 }
@@ -267,7 +322,7 @@ int main(int argc, char **argv)
     cmdparser.add<std::string>("points_topic", 'p', "LiDAR点群のトピック名を指定します．", false, "/points_raw");
     cmdparser.add<std::string>("depthmap_topic", 'd', "深度マップのトピック名を指定します．", false, "/depth");
     cmdparser.add<std::string>("camerainfo_topic", 'c', "CameraInfoのトピック名を指定します．", false, "/camera_info");
-    cmdparser.add<float_t>("minimum_scan_range", 's', "使用するLiDARやカメラからの距離(m)の最小値を指定する．", false, 2.0f);
+    cmdparser.add<float_t>("minimum_scan_range", 's', "使用するLiDARやカメラからの距離(m)の最小値を指定します．", false, 2.0f);
     cmdparser.add<float_t>("leaf_size", 'l', "点群の密度を小さくするVoxel Grid Filterのリーフサイズ(m)を設定します．", false, 0.2f);
     cmdparser.add("ros", 'r', "ROSのトピックを配信します．");
     cmdparser.add("help", 'h', "使い方を表示します.");
@@ -333,7 +388,9 @@ int main(int argc, char **argv)
     }
 
     bool ros_publish = cmdparser.exist("ros");
-    ros::init(argc, argv, "rosbag_to_pointsmap");
+    if (ros_publish == true) {
+        ros::init(argc, argv, "rosbag_to_pointsmap");
+    }
 
     //  クラス
     Rosbag2Pointsmap r2p(mode, cmdparser.rest(), cmdparser.get<double_t>("frequency"), output, ros_publish);
