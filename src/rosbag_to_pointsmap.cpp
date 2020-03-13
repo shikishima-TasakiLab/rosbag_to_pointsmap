@@ -13,7 +13,10 @@
 #include <ros/ros.h>
 #include <rosbag/bag.h>
 #include <rosbag/view.h>
+#include <cv_bridge/cv_bridge.h>
 #include <geometry_msgs/TransformStamped.h>
+#include <sensor_msgs/CameraInfo.h>
+#include <sensor_msgs/Image.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <tf2_msgs/TFMessage.h>
 #include <tf/tf.h>
@@ -24,7 +27,7 @@
 #define MODE_DEPTH 1
 
 #define POINTS_STOCK 5
-#define TF_STOCK 20
+#define QUEUE_STOCK 20
 
 #define SAVE_POINTSMAP 10000000UL
 
@@ -52,7 +55,9 @@ class Rosbag2Pointsmap
         ros::Publisher *points_map_pub_;
         tf::TransformBroadcaster *tf_br_;
 
-        std::deque<sensor_msgs::PointCloud2> points_queue_;
+        std::deque<sensor_msgs::PointCloud2> *points_queue_;
+        std::deque<sensor_msgs::CameraInfo> *camera_info_queue_;
+        std::deque<sensor_msgs::Image> *image_queue_;
         std::deque<geometry_msgs::TransformStamped> tf_data_queue_;
         std::deque<size_t> tf_cnt_queue_;
 
@@ -61,6 +66,7 @@ class Rosbag2Pointsmap
         size_t output_count_;
 
         int LiDAR2Pointsmap();
+        int Depth2Pointsmap();
         int SavePointsmap();       
 };
 
@@ -100,6 +106,16 @@ Rosbag2Pointsmap::Rosbag2Pointsmap(u_int mode, std::vector<std::string> rosbag_p
     this->topics_.push_back("/tf");
     this->topics_.push_back("/tf_static");
 
+    //  使用するキューのメモリ確保．
+    if (this->mode_ == MODE_POINTS) {
+        this->points_queue_ = new std::deque<sensor_msgs::PointCloud2>;
+    }
+    else if (this->mode_ == MODE_DEPTH) {
+        this->image_queue_ = new std::deque<sensor_msgs::Image>;
+        this->camera_info_queue_ = new std::deque<sensor_msgs::CameraInfo>;
+    }
+
+    //  ROSノードの設定．
     if (this->ros_publish_ == true) {
         this->nh_ = new ros::NodeHandle;
         this->points_map_pub_ = new ros::Publisher;
@@ -120,11 +136,9 @@ Rosbag2Pointsmap::Rosbag2Pointsmap(u_int mode, std::vector<std::string> rosbag_p
 int Rosbag2Pointsmap::Main()
 {
     //  使用するトピックの一覧を表示．
-    /*
     for (size_t i = 0; i < this->topics_.size(); i++) {
         std::cout << this->topics_[i] << std::endl;
     }
-    */
 
     //  使用するROSBAGをすべて読み込む．
     for (size_t rosbag_index = 0; rosbag_index < this->rosbag_paths_.size(); rosbag_index++) {
@@ -141,10 +155,10 @@ int Rosbag2Pointsmap::Main()
                 sensor_msgs::PointCloud2::ConstPtr points = message.instantiate<sensor_msgs::PointCloud2>();
                 if (points != nullptr) {
                     //  メッセージをキューに格納．
-                    this->points_queue_.push_back(*points);
+                    this->points_queue_->push_back(*points);
 
                     //  キューに格納されたメッセージの数が一定量を超えたら，地図生成を開始．
-                    if (this->points_queue_.size() >= POINTS_STOCK) {
+                    if (this->points_queue_->size() >= POINTS_STOCK && this->tf_data_queue_.size() > 0UL) {
                         this->LiDAR2Pointsmap();
                     }
                 }
@@ -161,7 +175,7 @@ int Rosbag2Pointsmap::Main()
                     this->tf_cnt_queue_.push_back(tf->transforms.size());
 
                     //  キューに格納されたメッセージの数が一定量を超えたら，古いデータを削除する．
-                    if (this->tf_cnt_queue_.size() > TF_STOCK) {
+                    if (this->tf_cnt_queue_.size() > QUEUE_STOCK) {
                         for (size_t i = 0; i < tf_cnt_queue_.front(); i++) {
                             this->tf_data_queue_.pop_front();
                         }
@@ -171,8 +185,58 @@ int Rosbag2Pointsmap::Main()
             }
 
             //  キューの中にあるメッセージをすべて読み込み，保存する．
-            while (this->points_queue_.size() > 0) this->LiDAR2Pointsmap();
+            while (this->points_queue_->size() > 0) this->LiDAR2Pointsmap();
             this->SavePointsmap();
+        }
+
+        //  深度マップから地図を生成するモード．
+        else if (this->mode_ == MODE_DEPTH) {
+            //  メッセージを一つずつ読み込む．
+            for(rosbag::MessageInstance const message: view) {
+                //  メッセージの型が sensor_msgs::Image の場合の処理．
+                sensor_msgs::Image::ConstPtr image = message.instantiate<sensor_msgs::Image>();
+                if (image != nullptr) {
+                    //  メッセージをキューに格納．
+                    this->image_queue_->push_back(*image);
+
+                    //  キューに格納されたメッセージの数が一定量を超えたら，地図生成を開始．
+                    if (this->image_queue_->size() >= POINTS_STOCK && this->camera_info_queue_->size() > 0UL && this->tf_data_queue_.size() > 0UL) {
+                        this->Depth2Pointsmap();
+                    }
+                }
+
+                //  メッセージの型が sensor_msgs::CameraInfo の場合の処理．
+                sensor_msgs::CameraInfo::ConstPtr camerainfo = message.instantiate<sensor_msgs::CameraInfo>();
+                if (camerainfo != nullptr) {
+                    //  メッセージをキューに格納．
+                    this->camera_info_queue_->push_back(*camerainfo);
+
+                    //  キューに格納されたメッセージの数が一定量を超えたら，古いデータを削除する．
+                    if (this->camera_info_queue_->size() > QUEUE_STOCK) {
+                        this->camera_info_queue_->pop_front();
+                    }
+                }
+
+                //  トピックの型が tf2_msgs::TFMessage の場合の処理．
+                tf2_msgs::TFMessage::ConstPtr tf = message.instantiate<tf2_msgs::TFMessage>();
+                if (tf != nullptr) {
+                    //  メッセージの中のデータをキューに格納．
+                    for (size_t i = 0; i < tf->transforms.size(); i++) {
+                        this->tf_data_queue_.push_back(tf->transforms.data()[i]);
+                    }
+
+                    //  メッセージの中のデータの数をキューに格納．
+                    this->tf_cnt_queue_.push_back(tf->transforms.size());
+
+                    //  キューに格納されたメッセージの数が一定量を超えたら，古いデータを削除する．
+                    if (this->tf_cnt_queue_.size() > QUEUE_STOCK) {
+                        for (size_t i = 0; i < tf_cnt_queue_.front(); i++) {
+                            this->tf_data_queue_.pop_front();
+                        }
+                        this->tf_cnt_queue_.pop_front();
+                    }
+                }
+            }
         }
     }
 
@@ -188,9 +252,9 @@ int Rosbag2Pointsmap::LiDAR2Pointsmap()
 
     //  LiDAR点群のメッセージの時間とキューの中にあるTFのメッセージの時間の差を求め，イテレータと共に可変長配列に保存する．
     for (std::deque<geometry_msgs::TransformStamped>::iterator tf_itr = this->tf_data_queue_.begin(); tf_itr != this->tf_data_queue_.end(); tf_itr++) {
-        double_t time_points = (double_t)(this->points_queue_.front().header.stamp.sec) + (double_t)(this->points_queue_.front().header.stamp.nsec) * 0.000000001;
+        double_t time_points = (double_t)(this->points_queue_->front().header.stamp.sec) + (double_t)(this->points_queue_->front().header.stamp.nsec) * 0.000000001;
         double_t time_tf = (double_t)(tf_itr->header.stamp.sec) + (double_t)(tf_itr->header.stamp.nsec) * 0.000000001;
-        if (this->points_queue_.front().header.frame_id == tf_itr->child_frame_id) {
+        if (this->points_queue_->front().header.frame_id == tf_itr->child_frame_id) {
             d_times.push_back(fabs(time_points - time_tf));
             tf_data_queue_itrs.push_back(tf_itr);
         }
@@ -204,8 +268,8 @@ int Rosbag2Pointsmap::LiDAR2Pointsmap()
         ros::Time ros_now = ros::Time::now();
         tf_msg.header.stamp = ros_now;
         this->tf_br_->sendTransform(tf_msg);
-        points_queue_.front().header.stamp = ros_now;
-        this->points_pub_->publish(this->points_queue_.front());
+        this->points_queue_->front().header.stamp = ros_now;
+        this->points_pub_->publish(this->points_queue_->front());
     }
 
     //  TFとLiDAR点群を扱いやすい型に変換する．
@@ -213,7 +277,7 @@ int Rosbag2Pointsmap::LiDAR2Pointsmap()
     tf::transformStampedMsgToTF(*tf_data, tf_w2l);
 
     pcl::PointCloud<pcl::PointXYZ> points_lidar;
-    pcl::fromROSMsg(this->points_queue_.front(), points_lidar);
+    pcl::fromROSMsg(this->points_queue_->front(), points_lidar);
 
     //  LiDAR点群を，LiDARの座標系から地図の座標系に，TFを用いて変換する．
     for (size_t i = 0; i < points_lidar.size(); i++) {
@@ -228,7 +292,7 @@ int Rosbag2Pointsmap::LiDAR2Pointsmap()
     }
 
     //  LiDAR点群をキューから消去する．
-    this->points_queue_.pop_front();
+    this->points_queue_->pop_front();
 
     //  三次元地図の点の数が一定量を超えたら，いったん保存する．
     if (this->points_map_->points.size() > SAVE_POINTSMAP) {
@@ -240,6 +304,31 @@ int Rosbag2Pointsmap::LiDAR2Pointsmap()
         ros::spinOnce();
         rate.sleep();
     }
+
+    return EXIT_SUCCESS;
+}
+
+int Rosbag2Pointsmap::Depth2Pointsmap()
+{
+    //  可変長配列
+    std::vector<double_t> d_times;
+    std::vector<std::deque<geometry_msgs::TransformStamped>::iterator> tf_data_queue_itrs;
+
+    //  LiDAR点群のメッセージの時間とキューの中にあるTFのメッセージの時間の差を求め，イテレータと共に可変長配列に保存する．
+    for (std::deque<geometry_msgs::TransformStamped>::iterator tf_itr = this->tf_data_queue_.begin(); tf_itr != this->tf_data_queue_.end(); tf_itr++) {
+        double_t time_points = (double_t)(this->image_queue_->front().header.stamp.sec) + (double_t)(this->image_queue_->front().header.stamp.nsec) * 0.000000001;
+        double_t time_tf = (double_t)(tf_itr->header.stamp.sec) + (double_t)(tf_itr->header.stamp.nsec) * 0.000000001;
+        if (this->image_queue_->front().header.frame_id == tf_itr->child_frame_id) {
+            d_times.push_back(fabs(time_points - time_tf));
+            tf_data_queue_itrs.push_back(tf_itr);
+        }
+    }
+    //  時間の差が最小なTFを一つ選択する．
+    std::deque<geometry_msgs::TransformStamped>::iterator tf_data = tf_data_queue_itrs[std::distance(d_times.begin(), std::min_element(d_times.begin(), d_times.end()))];
+
+    std::cout << tf_data->header.stamp << " : " << tf_data->header.frame_id << " : " << tf_data->child_frame_id << std::endl;
+
+    //cv::Mat depth_map = cv_bridge::toCvCopy(this->image_queue_->front(), this->image_queue_->front().encoding);
 
     return EXIT_SUCCESS;
 }

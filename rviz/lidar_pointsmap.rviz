@@ -6,6 +6,11 @@ Panels:
       Expanded:
         - /Global Options1
         - /TF1
+        - /TF1/Frames1
+        - /TF1/Frames1/ego_vehicle/lidar/lidar11
+        - /TF1/Frames1/map1
+        - /TF1/Tree1
+        - /TF1/Tree1/map1
       Splitter Ratio: 0.5
     Tree Height: 775
   - Class: rviz/Selection
@@ -59,7 +64,7 @@ Visualization Manager:
           Value: true
         map:
           Value: true
-      Marker Scale: 1
+      Marker Scale: 5
       Name: TF
       Show Arrows: true
       Show Axes: true
@@ -155,7 +160,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 104.766029
+      Distance: 102.699493
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.0599999987
         Stereo Focal Distance: 1
