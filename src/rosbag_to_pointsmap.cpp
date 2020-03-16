@@ -29,6 +29,7 @@
 #define POINTS_STOCK 5
 #define QUEUE_STOCK 20
 
+#define DEPTH_RANGE 150.0f
 #define SAVE_POINTSMAP 10000000UL
 
 //  クラスの定義
@@ -53,6 +54,8 @@ class Rosbag2Pointsmap
         ros::NodeHandle *nh_;
         ros::Publisher *points_pub_;
         ros::Publisher *points_map_pub_;
+        ros::Publisher *camera_info_pub_;
+        ros::Publisher *depth_map_pub_;
         tf::TransformBroadcaster *tf_br_;
 
         std::deque<sensor_msgs::PointCloud2> *points_queue_;
@@ -127,7 +130,11 @@ Rosbag2Pointsmap::Rosbag2Pointsmap(u_int mode, std::vector<std::string> rosbag_p
             *this->points_pub_ = this->nh_->advertise<sensor_msgs::PointCloud2>("lidar_points", 1);
         }
         else if (this->mode_ == MODE_DEPTH) {
+            this->camera_info_pub_ = new ros::Publisher;
+            this->depth_map_pub_ = new ros::Publisher;
             *this->points_pub_ = this->nh_->advertise<sensor_msgs::PointCloud2>("depth_points", 1);
+            *this->camera_info_pub_ = this->nh_->advertise<sensor_msgs::CameraInfo>("camera_info", 1);
+            *this->depth_map_pub_ = this->nh_->advertise<sensor_msgs::Image>("depth_map", 1);
         }
     }
 }
@@ -299,6 +306,7 @@ int Rosbag2Pointsmap::LiDAR2Pointsmap()
         this->SavePointsmap();
     }
 
+    //  ROSノード起動時は，一定時間スリープする．
     if (this->ros_publish_ == true) {
         ros::Rate rate(this->frequency_);
         ros::spinOnce();
@@ -343,9 +351,100 @@ int Rosbag2Pointsmap::Depth2Pointsmap()
     std::cout << "TF   : " << tf_data->header.stamp << " : " << tf_data->header.frame_id << " : " << tf_data->child_frame_id << " : " << this->image_queue_->front().encoding << std::endl;
     std::cout << "INFO : " << camera_info_data->header.stamp << " : " << camera_info_data->header.frame_id << std::endl;
 
+    /*
+    std::cout   << "K:\t" << camera_info_data->K[0] << "\t" << camera_info_data->K[1] << "\t" << camera_info_data->K[2] << std::endl
+                << "\t" << camera_info_data->K[3] << "\t" << camera_info_data->K[4] << "\t" << camera_info_data->K[5] << std::endl
+                << "\t" << camera_info_data->K[6] << "\t" << camera_info_data->K[7] << "\t" << camera_info_data->K[8] << std::endl;
+    std::cout   << "P:\t" << camera_info_data->P[0] << "\t" << camera_info_data->P[1] << "\t" << camera_info_data->P[2] << "\t" << camera_info_data->P[3] << std::endl
+                << "\t" << camera_info_data->P[4] << "\t" << camera_info_data->P[5] << "\t" << camera_info_data->P[6] << "\t" << camera_info_data->P[7] << std::endl
+                << "\t" << camera_info_data->P[8] << "\t" << camera_info_data->P[9] << "\t" << camera_info_data->P[10] << "\t" << camera_info_data->P[11] << std::endl;
+    std::cout   << "R:\t" << camera_info_data->R[0] << "\t" << camera_info_data->R[1] << "\t" << camera_info_data->R[2] << std::endl
+                << "\t" << camera_info_data->R[3] << "\t" << camera_info_data->R[4] << "\t" << camera_info_data->R[5] << std::endl
+                << "\t" << camera_info_data->R[6] << "\t" << camera_info_data->R[7] << "\t" << camera_info_data->R[8] << std::endl;
+    */
+
+    //  TFと深度マップを扱いやすい型に変換する．
+    tf::StampedTransform tf_w2l;
+    tf::transformStampedMsgToTF(*tf_data, tf_w2l);
     cv::Mat depth_map = cv_bridge::toCvCopy(this->image_queue_->front(), this->image_queue_->front().encoding)->image;
 
+    pcl::PointCloud<pcl::PointXYZ> points;
+
+    //  深度マップのデータの型によって処理を分岐
+    if (depth_map.type() == CV_32FC1) {
+        //  カメラパラメータを取得
+        float_t fx = (float_t)(camera_info_data->K[0]);
+        float_t fy = (float_t)(camera_info_data->K[4]);
+        float_t cx = (float_t)(camera_info_data->K[3]);
+        float_t cy = (float_t)(camera_info_data->K[5]);
+
+        //  各画素値を点群に変換する．
+        for (size_t y = 0; y < depth_map.rows; y++) {
+            float_t *depth_map_ptr = depth_map.ptr<float_t>(y);
+            for (size_t x = 0; x < depth_map.cols; x++) {
+                //  深度が一定の範囲外の場合は点に変換しない．
+                if (depth_map_ptr[x] <= 0.0f || DEPTH_RANGE < depth_map_ptr[x]) continue;
+
+                tf::Vector3 point_vec;
+                tf::Vector3 point_vec_map;
+                pcl::PointXYZ point;
+
+                //  逆透視投影変換
+                point_vec.setX(((float_t)x - cx) / fx * depth_map_ptr[x]);
+                point_vec.setY(((float_t)y - cy) / fy * depth_map_ptr[x]);
+                point_vec.setZ(depth_map_ptr[x]);
+                point.x = point_vec.x();
+                point.y = point_vec.y();
+                point.z = point_vec.z();
+                points.push_back(point);
+
+                //  カメラ座標系から地図の座標系へ，TFを用いて変換する．
+                point_vec_map = tf_w2l * point_vec;
+                point.x = point_vec_map.x();
+                point.y = point_vec_map.y();
+                point.z = point_vec_map.z();
+
+                this->points_map_->push_back(point);
+            }
+        }
+    }
+
+    //  ROSのトピックを配信
+    if (this->ros_publish_ == true) {
+        geometry_msgs::TransformStamped tf_msg = *tf_data;
+        sensor_msgs::CameraInfo camera_info_msg = *camera_info_data;
+        sensor_msgs::PointCloud2 depth_points_msg;
+        pcl::toROSMsg(points, depth_points_msg);
+        ros::Time ros_now = ros::Time::now();
+
+        tf_msg.header.stamp = ros_now;
+        this->tf_br_->sendTransform(tf_msg);
+
+        depth_points_msg.header.stamp = ros_now;
+        depth_points_msg.header.frame_id = this->image_queue_->front().header.frame_id;
+        this->points_pub_->publish(depth_points_msg);
+
+        camera_info_msg.header.stamp = ros_now;
+        this->camera_info_pub_->publish(camera_info_msg);
+
+        this->image_queue_->front().header.stamp = ros_now;
+        this->depth_map_pub_->publish(this->image_queue_->front());
+    }
+
+    //  深度マップをキューから消去する．
     this->image_queue_->pop_front();
+
+    //  三次元地図の点の数が一定量を超えたら，いったん保存する．
+    if (this->points_map_->points.size() > SAVE_POINTSMAP) {
+        this->SavePointsmap();
+    }
+
+    //  ROSノード起動時は，一定時間スリープする．
+    if (this->ros_publish_ == true) {
+        ros::Rate rate(this->frequency_);
+        ros::spinOnce();
+        rate.sleep();
+    }
 
     return EXIT_SUCCESS;
 }
