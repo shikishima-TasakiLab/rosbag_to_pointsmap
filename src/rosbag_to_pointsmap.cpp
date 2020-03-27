@@ -259,8 +259,8 @@ int Rosbag2Pointsmap::LiDAR2Pointsmap()
 
     //  LiDAR点群のメッセージの時間とキューの中にあるTFのメッセージの時間の差を求め，イテレータと共に可変長配列に保存する．
     for (std::deque<geometry_msgs::TransformStamped>::iterator tf_itr = this->tf_data_queue_.begin(); tf_itr != this->tf_data_queue_.end(); tf_itr++) {
-        double_t time_points = (double_t)(this->points_queue_->front().header.stamp.sec) + (double_t)(this->points_queue_->front().header.stamp.nsec) * 0.000000001;
-        double_t time_tf = (double_t)(tf_itr->header.stamp.sec) + (double_t)(tf_itr->header.stamp.nsec) * 0.000000001;
+        double_t time_points = (double_t)(this->points_queue_->front().header.stamp.sec) + (double_t)(this->points_queue_->front().header.stamp.nsec) * 1e-9;
+        double_t time_tf = (double_t)(tf_itr->header.stamp.sec) + (double_t)(tf_itr->header.stamp.nsec) * 1e-9;
         if (this->points_queue_->front().header.frame_id == tf_itr->child_frame_id) {
             d_times.push_back(fabs(time_points - time_tf));
             tf_data_queue_itrs.push_back(tf_itr);
@@ -325,8 +325,8 @@ int Rosbag2Pointsmap::Depth2Pointsmap()
 
     //  深度マップのメッセージの時間とキューの中にあるTFのメッセージの時間の差を求め，イテレータと共に可変長配列に保存する．
     for (std::deque<geometry_msgs::TransformStamped>::iterator tf_itr = this->tf_data_queue_.begin(); tf_itr != this->tf_data_queue_.end(); tf_itr++) {
-        double_t time_depth = (double_t)(this->image_queue_->front().header.stamp.sec) + (double_t)(this->image_queue_->front().header.stamp.nsec) * 0.000000001;
-        double_t time_tf = (double_t)(tf_itr->header.stamp.sec) + (double_t)(tf_itr->header.stamp.nsec) * 0.000000001;
+        double_t time_depth = (double_t)(this->image_queue_->front().header.stamp.sec) + (double_t)(this->image_queue_->front().header.stamp.nsec) * 1e-9;
+        double_t time_tf = (double_t)(tf_itr->header.stamp.sec) + (double_t)(tf_itr->header.stamp.nsec) * 1e-9;
         if (this->image_queue_->front().header.frame_id == tf_itr->child_frame_id) {
             d_times.push_back(fabs(time_depth - time_tf));
             tf_data_queue_itrs.push_back(tf_itr);
@@ -338,8 +338,8 @@ int Rosbag2Pointsmap::Depth2Pointsmap()
     //  深度マップのメッセージの時間とキューの中にあるCameraInfoのメッセージの時間の差を求め，イテレータと共に可変長配列に保存する．
     d_times.clear();
     for (std::deque<sensor_msgs::CameraInfo>::iterator camera_info_itr = this->camera_info_queue_->begin(); camera_info_itr != this->camera_info_queue_->end(); camera_info_itr++) {
-        double_t time_depth = (double_t)(this->image_queue_->front().header.stamp.sec) + (double_t)(this->image_queue_->front().header.stamp.nsec) * 0.000000001;
-        double_t time_camera_info = (double_t)(camera_info_itr->header.stamp.sec) + (double_t)(camera_info_itr->header.stamp.nsec) * 0.000000001;
+        double_t time_depth = (double_t)(this->image_queue_->front().header.stamp.sec) + (double_t)(this->image_queue_->front().header.stamp.nsec) * 1e-9;
+        double_t time_camera_info = (double_t)(camera_info_itr->header.stamp.sec) + (double_t)(camera_info_itr->header.stamp.nsec) * 1e-9;
         if (this->image_queue_->front().header.frame_id == camera_info_itr->header.frame_id) {
             d_times.push_back(fabs(time_depth - time_camera_info));
             camera_info_queue_itrs.push_back(camera_info_itr);
@@ -558,7 +558,10 @@ int main(int argc, char **argv)
             return EXIT_FAILURE;
         }
     }
-    else assert("mode が選択されていません．");
+    else {
+        std::cerr << "mode が選択されていません．" << std::endl;
+        return EXIT_FAILURE;
+    }
 
     //  ROSBAG ファイルのパスがない場合，終了する．
     if (cmdparser.rest().size() == 0){

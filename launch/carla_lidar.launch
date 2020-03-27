@@ -1,9 +1,9 @@
 <launch>
     <!-- ROSBAGファイル(.bag)のパスを "value=" 以降に入力してください．複数のROSBAGを使用する際は，半角スペースで区切ってください． -->
-    <arg name="rosbag" value="/home/shikishima/Autoware/data/2020-03-04-13-14-57.bag /home/shikishima/Autoware/data/2020-03-04-13-14-58.bag"/>
+    <arg name="rosbag" value="/home/shikishima/Autoware/carla_2020-03-19-18-36-18.bag"/>
 
     <!-- 三次元地図の保存先を "value=" 以降に入力してください． -->
-    <arg name="output" value="/dataset/Autoware/pointsmap.pcd"/>
+    <arg name="output" value="/home/shikishima/Autoware/pointsmap.pcd"/>
 
     <!-- carla のLiDARのトピック名を "value=" 以降に入力してください． -->
     <arg name="lidar_topic" value="/carla/ego_vehicle/lidar/lidar1/point_cloud"/>
