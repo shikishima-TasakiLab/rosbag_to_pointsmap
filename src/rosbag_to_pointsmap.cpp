@@ -570,8 +570,10 @@ int Rosbag2Pointsmap::SavePointsmap()
         return EXIT_FAILURE;
     }
     
+    //  メモリ上の三次元地図の消去．
     this->points_map_->points.clear();
 
+    //  ROSノード起動時は地図を配信する．
     if (this->ros_publish_ == true) {
         sensor_msgs::PointCloud2 display_map;
         pcl::toROSMsg<pcl::PointXYZ>(save_pointsmap, display_map);
