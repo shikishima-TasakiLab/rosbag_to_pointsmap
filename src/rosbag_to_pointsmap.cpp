@@ -585,8 +585,10 @@ int Rosbag2Pointsmap::SavePointsmap()
 //  保存した三次元地図をすべて表示
 int Rosbag2Pointsmap::DisplayAllSavedPointsmap()
 {
+    //  読み込んだ地図を入れる変数を定義．
     pcl::PointCloud<pcl::PointXYZ> all_pointsmap;
 
+    //  地図を順に読み込む．
     for (std::vector<std::string>::iterator load_path_itr = this->output_paths_.begin(); load_path_itr != this->output_paths_.end(); load_path_itr++) {
         pcl::PointCloud<pcl::PointXYZ> temp;
         try
@@ -601,6 +603,7 @@ int Rosbag2Pointsmap::DisplayAllSavedPointsmap()
         }
     }
 
+    //  RViz上で表示できるよう，トピックを送信．
     sensor_msgs::PointCloud2 display_map;
     pcl::toROSMsg<pcl::PointXYZ>(all_pointsmap, display_map);
     display_map.header.frame_id = "/map";
