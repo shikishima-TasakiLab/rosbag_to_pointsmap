@@ -29,8 +29,9 @@
 #define POINTS_STOCK 5
 #define QUEUE_STOCK 20
 
-#define DEPTH_RANGE 150.0f
-#define SAVE_POINTSMAP 10000000UL
+#define DEPTH_RANGE 150.0
+#define SAVE_POINTSMAP_LIDAR 10000000UL
+#define SAVE_POINTSMAP_DEPTH 100000000UL
 
 //  クラスの定義
 class Rosbag2Pointsmap
@@ -38,7 +39,7 @@ class Rosbag2Pointsmap
     //  クラスの外から参照できるメンバ変数・関数．
     public:
         std::vector<std::string> topics_;
-        float_t minimum_scan_range_;
+        double_t minimum_scan_range_;
         float_t leaf_size_;
 
         Rosbag2Pointsmap(u_int mode, std::vector<std::string> rosbag_path, double_t frequency, std::string output_path, bool ros_publish);
@@ -66,18 +67,20 @@ class Rosbag2Pointsmap
 
         pcl::PointCloud<pcl::PointXYZ>::Ptr points_map_;
         std::string output_path_;
+        std::vector<std::string> output_paths_;
         size_t output_count_;
 
         int LiDAR2Pointsmap();
         int Depth2Pointsmap();
-        int SavePointsmap();       
+        int SavePointsmap();
+        int DisplayAllSavedPointsmap();
 };
 
 //  クラスの初期化
 Rosbag2Pointsmap::Rosbag2Pointsmap(u_int mode, std::vector<std::string> rosbag_path, double_t frequency, std::string output_path, bool ros_publish)
     :   points_map_(new pcl::PointCloud<pcl::PointXYZ>)
     ,   output_count_(0)
-    ,   minimum_scan_range_(2.0f)
+    ,   minimum_scan_range_(2.0)
     ,   leaf_size_(0.2f)
 {
     //  引数をクラスのメンバ変数に格納する．
@@ -194,6 +197,9 @@ int Rosbag2Pointsmap::Main()
             //  キューの中にあるメッセージをすべて読み込み，保存する．
             while (this->points_queue_->size() > 0) this->LiDAR2Pointsmap();
             this->SavePointsmap();
+            if (this->ros_publish_) {
+                this->DisplayAllSavedPointsmap();
+            }
         }
 
         //  深度マップから地図を生成するモード．
@@ -244,6 +250,13 @@ int Rosbag2Pointsmap::Main()
                     }
                 }
             }
+
+            //  キューの中にあるメッセージをすべて読み込み，保存する．
+            while (this->image_queue_->size() > 0) this->Depth2Pointsmap();
+            this->SavePointsmap();
+            if (this->ros_publish_) {
+                this->DisplayAllSavedPointsmap();
+            }
         }
     }
 
@@ -266,8 +279,12 @@ int Rosbag2Pointsmap::LiDAR2Pointsmap()
             tf_data_queue_itrs.push_back(tf_itr);
         }
     }
+
+    //  時間の差の最小値を取得．
+    std::vector<double_t>::iterator min_d_time = std::min_element(d_times.begin(), d_times.end());
+
     //  時間の差が最小なTFを一つ選択する．
-    std::deque<geometry_msgs::TransformStamped>::iterator tf_data = tf_data_queue_itrs[std::distance(d_times.begin(), std::min_element(d_times.begin(), d_times.end()))];
+    std::deque<geometry_msgs::TransformStamped>::iterator tf_data = tf_data_queue_itrs[std::distance(d_times.begin(), min_d_time)];
 
     //  ROSのトピックを配信
     if (this->ros_publish_ == true) {
@@ -279,6 +296,21 @@ int Rosbag2Pointsmap::LiDAR2Pointsmap()
         this->points_pub_->publish(this->points_queue_->front());
     }
 
+    //  一定以上の時間差がある場合は処理しない．
+    if (*min_d_time >= 1.0 / this->frequency_) {
+        //  LiDAR点群をキューから消去する．
+        this->points_queue_->pop_front();
+
+        //  ROSノード起動時は，一定時間スリープする．
+        if (this->ros_publish_ == true) {
+            ros::Rate rate(this->frequency_);
+            ros::spinOnce();
+            rate.sleep();
+        }
+
+        return EXIT_FAILURE;
+    }
+
     //  TFとLiDAR点群を扱いやすい型に変換する．
     tf::StampedTransform tf_w2l;
     tf::transformStampedMsgToTF(*tf_data, tf_w2l);
@@ -288,8 +320,8 @@ int Rosbag2Pointsmap::LiDAR2Pointsmap()
 
     //  LiDAR点群を，LiDARの座標系から地図の座標系に，TFを用いて変換する．
     for (size_t i = 0; i < points_lidar.size(); i++) {
-        tf::Vector3 point_lidar = tf::Vector3(points_lidar.points[i].x, points_lidar.points[i].y, points_lidar.points[i].z);
-        if (point_lidar.distance(tf::Vector3(0.0f, 0.0f, 0.0f)) < this->minimum_scan_range_) continue;
+        tf::Vector3 point_lidar = tf::Vector3((double_t)points_lidar.points[i].x, (double_t)points_lidar.points[i].y, (double_t)points_lidar.points[i].z);
+        if (point_lidar.distance(tf::Vector3(0.0, 0.0, 0.0)) < this->minimum_scan_range_) continue;
         tf::Vector3 point_world = tf_w2l * point_lidar;
         pcl::PointXYZ point;
         point.x = point_world.x();
@@ -302,7 +334,7 @@ int Rosbag2Pointsmap::LiDAR2Pointsmap()
     this->points_queue_->pop_front();
 
     //  三次元地図の点の数が一定量を超えたら，いったん保存する．
-    if (this->points_map_->points.size() > SAVE_POINTSMAP) {
+    if (this->points_map_->points.size() > SAVE_POINTSMAP_LIDAR) {
         this->SavePointsmap();
     }
 
@@ -332,8 +364,32 @@ int Rosbag2Pointsmap::Depth2Pointsmap()
             tf_data_queue_itrs.push_back(tf_itr);
         }
     }
+    //  時間の差の最小値を求める．
+    std::vector<double_t>::iterator min_d_time = std::min_element(d_times.begin(), d_times.end());
+
     //  時間の差が最小なTFを一つ選択する．
-    std::deque<geometry_msgs::TransformStamped>::iterator tf_data = tf_data_queue_itrs[std::distance(d_times.begin(), std::min_element(d_times.begin(), d_times.end()))];
+    std::deque<geometry_msgs::TransformStamped>::iterator tf_data = tf_data_queue_itrs[std::distance(d_times.begin(), min_d_time)];
+
+    //  一定以上の時間差がある場合は処理しない．
+    if (*min_d_time >= 1.0 / this->frequency_) {
+        //  深度マップをキューから消去する．
+        this->image_queue_->pop_front();
+
+        //  ROSノード起動時．
+        if (this->ros_publish_ == true) {
+            //  TFを送信する．
+            geometry_msgs::TransformStamped tf_msg = *tf_data;
+            tf_msg.header.stamp = ros::Time::now();
+            this->tf_br_->sendTransform(tf_msg);
+
+            //  一定時間スリープする．
+            ros::Rate rate(this->frequency_);
+            ros::spinOnce();
+            rate.sleep();
+        }
+
+        return EXIT_FAILURE;
+    }
 
     //  深度マップのメッセージの時間とキューの中にあるCameraInfoのメッセージの時間の差を求め，イテレータと共に可変長配列に保存する．
     d_times.clear();
@@ -345,23 +401,33 @@ int Rosbag2Pointsmap::Depth2Pointsmap()
             camera_info_queue_itrs.push_back(camera_info_itr);
         }
     }
+
+    //  時間の差の最小値を求める．
+    min_d_time = std::min_element(d_times.begin(), d_times.end());
+
     //  時間の差が最小なCameraInfoを一つ選択する．
-    std::deque<sensor_msgs::CameraInfo>::iterator camera_info_data = camera_info_queue_itrs[std::distance(d_times.begin(), std::min_element(d_times.begin(), d_times.end()))];
+    std::deque<sensor_msgs::CameraInfo>::iterator camera_info_data = camera_info_queue_itrs[std::distance(d_times.begin(), min_d_time)];
 
-    std::cout << "TF   : " << tf_data->header.stamp << " : " << tf_data->header.frame_id << " : " << tf_data->child_frame_id << " : " << this->image_queue_->front().encoding << std::endl;
-    std::cout << "INFO : " << camera_info_data->header.stamp << " : " << camera_info_data->header.frame_id << std::endl;
+    //  一定以上の時間差がある場合は処理しない．
+    if (*min_d_time >= 1.0 / this->frequency_) {
+        //  深度マップをキューから消去する．
+        this->image_queue_->pop_front();
 
-    /*
-    std::cout   << "K:\t" << camera_info_data->K[0] << "\t" << camera_info_data->K[1] << "\t" << camera_info_data->K[2] << std::endl
-                << "\t" << camera_info_data->K[3] << "\t" << camera_info_data->K[4] << "\t" << camera_info_data->K[5] << std::endl
-                << "\t" << camera_info_data->K[6] << "\t" << camera_info_data->K[7] << "\t" << camera_info_data->K[8] << std::endl;
-    std::cout   << "P:\t" << camera_info_data->P[0] << "\t" << camera_info_data->P[1] << "\t" << camera_info_data->P[2] << "\t" << camera_info_data->P[3] << std::endl
-                << "\t" << camera_info_data->P[4] << "\t" << camera_info_data->P[5] << "\t" << camera_info_data->P[6] << "\t" << camera_info_data->P[7] << std::endl
-                << "\t" << camera_info_data->P[8] << "\t" << camera_info_data->P[9] << "\t" << camera_info_data->P[10] << "\t" << camera_info_data->P[11] << std::endl;
-    std::cout   << "R:\t" << camera_info_data->R[0] << "\t" << camera_info_data->R[1] << "\t" << camera_info_data->R[2] << std::endl
-                << "\t" << camera_info_data->R[3] << "\t" << camera_info_data->R[4] << "\t" << camera_info_data->R[5] << std::endl
-                << "\t" << camera_info_data->R[6] << "\t" << camera_info_data->R[7] << "\t" << camera_info_data->R[8] << std::endl;
-    */
+        //  ROSノード起動時．
+        if (this->ros_publish_ == true) {
+            //  TFを送信する．
+            geometry_msgs::TransformStamped tf_msg = *tf_data;
+            tf_msg.header.stamp = ros::Time::now();
+            this->tf_br_->sendTransform(tf_msg);
+
+            //  一定時間スリープする．
+            ros::Rate rate(this->frequency_);
+            ros::spinOnce();
+            rate.sleep();
+        }
+
+        return EXIT_FAILURE;
+    }
 
     //  TFと深度マップを扱いやすい型に変換する．
     tf::StampedTransform tf_w2l;
@@ -373,10 +439,10 @@ int Rosbag2Pointsmap::Depth2Pointsmap()
     //  深度マップのデータの型によって処理を分岐
     if (depth_map.type() == CV_32FC1) {
         //  カメラパラメータを取得
-        float_t fx = (float_t)(camera_info_data->K[0]);
-        float_t fy = (float_t)(camera_info_data->K[4]);
-        float_t cx = (float_t)(camera_info_data->K[3]);
-        float_t cy = (float_t)(camera_info_data->K[5]);
+        double_t fx = camera_info_data->K[0];
+        double_t fy = camera_info_data->K[4];
+        double_t cx = camera_info_data->K[2];
+        double_t cy = camera_info_data->K[5];
 
         //  各画素値を点群に変換する．
         for (size_t y = 0; y < depth_map.rows; y++) {
@@ -390,19 +456,19 @@ int Rosbag2Pointsmap::Depth2Pointsmap()
                 pcl::PointXYZ point;
 
                 //  逆透視投影変換
-                point_vec.setX(((float_t)x - cx) / fx * depth_map_ptr[x]);
-                point_vec.setY(((float_t)y - cy) / fy * depth_map_ptr[x]);
-                point_vec.setZ(depth_map_ptr[x]);
-                point.x = point_vec.x();
-                point.y = point_vec.y();
-                point.z = point_vec.z();
+                point_vec.setX(((double_t)x - cx) / fx * (double_t)depth_map_ptr[x]);
+                point_vec.setY(((double_t)y - cy) / fy * (double_t)depth_map_ptr[x]);
+                point_vec.setZ((double_t)depth_map_ptr[x]);
+                point.x = (float_t)point_vec.x();
+                point.y = (float_t)point_vec.y();
+                point.z = (float_t)point_vec.z();
                 points.push_back(point);
 
                 //  カメラ座標系から地図の座標系へ，TFを用いて変換する．
                 point_vec_map = tf_w2l * point_vec;
-                point.x = point_vec_map.x();
-                point.y = point_vec_map.y();
-                point.z = point_vec_map.z();
+                point.x = (float_t)point_vec_map.x();
+                point.y = (float_t)point_vec_map.y();
+                point.z = (float_t)point_vec_map.z();
 
                 this->points_map_->push_back(point);
             }
@@ -435,7 +501,7 @@ int Rosbag2Pointsmap::Depth2Pointsmap()
     this->image_queue_->pop_front();
 
     //  三次元地図の点の数が一定量を超えたら，いったん保存する．
-    if (this->points_map_->points.size() > SAVE_POINTSMAP) {
+    if (this->points_map_->points.size() > SAVE_POINTSMAP_DEPTH) {
         this->SavePointsmap();
     }
 
@@ -495,6 +561,7 @@ int Rosbag2Pointsmap::SavePointsmap()
     {
         pcl::io::savePCDFileBinary(save_path, save_pointsmap);
         std::cout << "\"" << save_path << "\" に生成した三次元地図を保存しました．" << std::endl;
+        this->output_paths_.push_back(save_path);
     }
     catch(const pcl::IOException& e)
     {
@@ -515,6 +582,34 @@ int Rosbag2Pointsmap::SavePointsmap()
     return EXIT_SUCCESS;
 }
 
+//  保存した三次元地図をすべて表示
+int Rosbag2Pointsmap::DisplayAllSavedPointsmap()
+{
+    pcl::PointCloud<pcl::PointXYZ> all_pointsmap;
+
+    for (std::vector<std::string>::iterator load_path_itr = this->output_paths_.begin(); load_path_itr != this->output_paths_.end(); load_path_itr++) {
+        pcl::PointCloud<pcl::PointXYZ> temp;
+        try
+        {
+            pcl::io::loadPCDFile(*load_path_itr, temp);
+            all_pointsmap += temp;
+        }
+        catch(const pcl::IOException& e)
+        {
+            std::cerr << "\"" << *load_path_itr << "\" の読込に失敗しました．" << std::endl;
+            std::cerr << e.what() << '\n';
+        }
+    }
+
+    sensor_msgs::PointCloud2 display_map;
+    pcl::toROSMsg<pcl::PointXYZ>(all_pointsmap, display_map);
+    display_map.header.frame_id = "/map";
+    display_map.header.stamp = ros::Time::now();
+    this->points_map_pub_->publish(display_map);
+
+    return EXIT_SUCCESS;
+}
+
 int main(int argc, char **argv)
 {
     //  コマンドラインパーサの設定
@@ -527,7 +622,7 @@ int main(int argc, char **argv)
     cmdparser.add<std::string>("points_topic", 'p', "LiDAR点群のトピック名を指定します．", false, "/points_raw");
     cmdparser.add<std::string>("depthmap_topic", 'd', "深度マップのトピック名を指定します．", false, "/depth");
     cmdparser.add<std::string>("camerainfo_topic", 'c', "CameraInfoのトピック名を指定します．", false, "/camera_info");
-    cmdparser.add<float_t>("minimum_scan_range", 's', "使用するLiDARやカメラからの距離(m)の最小値を指定します．", false, 2.0f);
+    cmdparser.add<double_t>("minimum_scan_range", 's', "使用するLiDARやカメラからの距離(m)の最小値を指定します．", false, 2.0f);
     cmdparser.add<float_t>("leaf_size", 'l', "点群の密度を小さくするVoxel Grid Filterのリーフサイズ(m)を設定します．", false, 0.2f);
     cmdparser.add("ros", 'r', "ROSのトピックを配信します．");
     cmdparser.add("help", 'h', "使い方を表示します.");
@@ -582,8 +677,8 @@ int main(int argc, char **argv)
     }
 
     //  minimum_scan_range が0.0以上でない場合，終了する．
-    float_t minimum_scan_range = cmdparser.get<float_t>("minimum_scan_range");
-    if (minimum_scan_range < 0.0f) {
+    double_t minimum_scan_range = cmdparser.get<double_t>("minimum_scan_range");
+    if (minimum_scan_range < 0.0) {
         std::cout << "-s, --minimum_scan_range : 0.0 以上に指定してください．" << std::endl;
         return EXIT_FAILURE;
     }

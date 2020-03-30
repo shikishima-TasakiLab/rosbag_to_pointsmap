@@ -1,0 +1,26 @@
+<launch>
+    <!-- ROSBAGファイル(.bag)のパスを "value=" 以降に入力してください．複数のROSBAGを使用する際は，半角スペースで区切ってください． -->
+    <arg name="rosbag" value="/home/shikishima/Autoware/carla_2020-03-19-18-36-18.bag"/>
+
+    <!-- 三次元地図の保存先を "value=" 以降に入力してください． -->
+    <arg name="output" value="/home/shikishima/Autoware/pointsmap.pcd"/>
+
+    <!-- carla の深度マップのトピック名を "value=" 以降に入力してください． -->
+    <arg name="depth_topic" value="/carla/ego_vehicle/camera/depth/depth/image_depth"/>
+
+    <!-- carla のCameraParamのトピック名を "value=" 以降に入力してください． -->
+    <arg name="cameraparam_topic" value="/carla/ego_vehicle/camera/depth/depth/camera_info"/>
+
+
+    <!-- 使用するLiDARやカメラからの距離(m)の最小値を指定してください． -->
+    <arg name="minimum_scan_range" value="5.0"/>
+    <!-- 点群の密度を小さくするVoxel Grid Filterのリーフサイズ(m)を設定してください． -->
+    <arg name="leaf_size" value="0.2"/>
+    <!-- TFの配信周期を指定してください． -->
+    <arg name="frequency" value="20"/>
+
+    <arg name="rviz_config" default="$(find rosbag_to_pointsmap)/rviz/depth_pointsmap.rviz"/>
+
+    <node pkg="rviz" name="rviz" type="rviz" args="-d $(arg rviz_config)" required="true"/>
+    <node pkg="rosbag_to_pointsmap" name="rosbag_to_pointsmap" type="rosbag_to_pointsmap" respawn="false" args="-m depth -r -o $(arg output) -d $(arg depth_topic) -c $(arg cameraparam_topic) -s $(arg minimum_scan_range) -l $(arg leaf_size) -f $(arg frequency) $(arg rosbag)"/>
+</launch>
