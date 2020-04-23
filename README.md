@@ -23,9 +23,10 @@ CG空間上で取得したLiDAR点群，深度マップを記録したROSBAGか�
 ## コンパイル
 
 ```bash
+#!/bin/bash
 cd ~/catkin_ws/src
 git clone https://github.com/shikishima-TasakiLab/rosbag_to_pointsmap.git
-cd ..
+cd ~/catkin_ws
 catkin_make
 ```
 
@@ -36,6 +37,7 @@ catkin_make
 2. コメント文に従って，入力するROSBAGファイルのパス，出力する三次元地図のパス，使用するLiDARのトピック名を書き換える．
 3. roslaunchを実行する．**Ctrl+C**で終了．
     ```bash
+    #!/bin/bash
     roslaunch rosbag_to_pointsmap carla_lidar.launch
     ```
 
@@ -44,5 +46,6 @@ catkin_make
 2. コメント文に従って，入力するROSBAGファイルのパス，出力する三次元地図のパス，使用する深度マップ，CameraParamのトピック名を書き換える．
 3. roslaunchを実行する．**Ctrl+C**で終了．
     ```bash
+    #!/bin/bash
     roslaunch rosbag_to_pointsmap carla_depth.launch
     ```
