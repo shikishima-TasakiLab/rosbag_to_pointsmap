@@ -5,7 +5,7 @@
     <!-- 三次元地図の保存先を "value=" 以降に入力してください． -->
     <arg name="output" value="/home/shikishima/Autoware/pointsmap.pcd"/>
 
-    <!-- carla のLiDARのトピック名を "value=" 以降に入力してください． -->
+    <!-- carla のLiDARのトピック名を "value=" 以降に入力してください．(調べ方：rosbag info) -->
     <arg name="lidar_topic" value="/carla/ego_vehicle/lidar/lidar1/point_cloud"/>
 
 
