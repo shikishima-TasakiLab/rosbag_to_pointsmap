@@ -5,10 +5,10 @@
     <!-- 三次元地図の保存先を "value=" 以降に入力してください． -->
     <arg name="output" value="/home/shikishima/Autoware/pointsmap.pcd"/>
 
-    <!-- carla の深度マップのトピック名を "value=" 以降に入力してください． -->
+    <!-- carla の深度マップのトピック名を "value=" 以降に入力してください．(調べ方：rosbag info) -->
     <arg name="depth_topic" value="/carla/ego_vehicle/camera/depth/depth/image_depth"/>
 
-    <!-- carla のCameraParamのトピック名を "value=" 以降に入力してください． -->
+    <!-- carla のCameraParamのトピック名を "value=" 以降に入力してください．(調べ方：rosbag info) -->
     <arg name="cameraparam_topic" value="/carla/ego_vehicle/camera/depth/depth/camera_info"/>
 
 
